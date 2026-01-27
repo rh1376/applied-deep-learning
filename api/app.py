@@ -16,7 +16,7 @@ from src.nlp.run_utils import get_run_dirs
 from src.nlp.baseline import BaselinePredictor
 from src.nlp.transformer import TransformerPredictor
 
-app = FastAPI(title="Applied Deep Learning - CIFAR10 API")
+app = FastAPI(title="Applied Deep Learning")
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CHECKPOINT_PATH = REPO_ROOT / "models" / "cv" / "resnet18_cifar10.pt"
