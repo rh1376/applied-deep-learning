@@ -1,0 +1,32 @@
+{
+  "run_id": "20260127-215237-distilbert",
+  "model_type": "distilbert",
+  "created_at": "2026-01-27T18:26:15.992033",
+  "seed": 42,
+  "val_size": 0.1,
+  "dataset": "imdb",
+  "fingerprint": "0fa683ec6ac05f3b126e255850d1fdd6c7589cacaba4a3ae46e83e63d3a294bc",
+  "label2id": {
+    "neg": 0,
+    "pos": 1
+  },
+  "id2label": {
+    "0": "neg",
+    "1": "pos"
+  },
+  "hyperparams": {
+    "epochs": 2,
+    "batch_size": 16,
+    "grad_accum": 2,
+    "lr": 2e-05,
+    "max_length": 256,
+    "warmup_ratio": 0.06,
+    "weight_decay": 0.01
+  },
+  "hardware": {
+    "device": "cuda",
+    "cuda_available": true,
+    "cuda_device_count": 1,
+    "cuda_name": "NVIDIA GeForce RTX 3070 Ti"
+  }
+}
