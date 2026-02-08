@@ -1,0 +1,14 @@
+Defect CV Training Summary
+Model: base
+Parameters: 3609382
+Epochs: 50
+Batch size: 32
+LR: 0.001
+Weight decay: 0.0001
+Seed: 42
+Device: cuda
+AMP: True
+Best epoch: 46
+Best val acc: 0.9889
+Best checkpoint: models\defect_cv\best.pt
+Last checkpoint: models\defect_cv\last.pt

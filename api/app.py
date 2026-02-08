@@ -11,6 +11,11 @@ from typing import Literal, Optional, Dict, Tuple, Any
 
 from src.cv.inference import load_cv_model, predict_image
 from src.cv.data import CIFAR10_CLASSES
+from src.defect_cv.inference import (
+    DEFECT_CLASSES,
+    load_defect_model,
+    predict_defect_image,
+)
 
 from src.nlp.run_utils import get_run_dirs
 from src.nlp.baseline import BaselinePredictor
@@ -20,10 +25,14 @@ app = FastAPI(title="Applied Deep Learning")
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CHECKPOINT_PATH = REPO_ROOT / "models" / "cv" / "resnet18_cifar10.pt"
+DEFECT_CHECKPOINT_PATH = REPO_ROOT / "models" / "defect_cv" / "best.pt"
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model = None
 load_error: str | None = None
+defect_model = None
+defect_load_error: str | None = None
+defect_default_variant: str = os.getenv("DEFECT_MODEL", "base")
 
 # ---------- NLP globals ----------
 nlp_default_run_id: str | None = os.getenv("NLP_RUN_ID")  # optional
@@ -33,7 +42,8 @@ _nlp_cache: Dict[Tuple[str, str], Any] = {}  # (run_id, model_type) -> predictor
 
 @app.on_event("startup")
 def startup_event() -> None:
-    global model, load_error
+
+    global defect_model, defect_load_error
     global model, load_error, nlp_load_error
     try:
         model = load_cv_model(CHECKPOINT_PATH, device=device)
@@ -41,6 +51,15 @@ def startup_event() -> None:
     except Exception as e:
         model = None
         load_error = str(e)
+
+    try:
+        defect_model = load_defect_model(
+            DEFECT_CHECKPOINT_PATH, device=device, variant=defect_default_variant
+        )
+        defect_load_error = None
+    except Exception as e:
+        defect_model = None
+        defect_load_error = str(e)
 
         
     # Optional: load a default NLP predictor if NLP_RUN_ID is set
@@ -60,6 +79,10 @@ def health():
         "checkpoint_exists": CHECKPOINT_PATH.exists(),
         "model_loaded": model is not None,
         "load_error": load_error,
+        "defect_checkpoint_exists": DEFECT_CHECKPOINT_PATH.exists(),
+        "defect_model_loaded": defect_model is not None,
+        "defect_load_error": defect_load_error,
+        "defect_default_variant": defect_default_variant,
         "nlp_default_run_id": nlp_default_run_id,
         "nlp_default_model": nlp_default_model,
         "nlp_load_error": nlp_load_error,
@@ -99,6 +122,54 @@ async def predict_image_endpoint(file: UploadFile = File(...)):
             "probabilities": probs_dict,
             "device": str(device),
             "checkpoint": str(CHECKPOINT_PATH),
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    finally:
+        if tmp_path is not None and tmp_path.exists():
+            try:
+                os.remove(tmp_path)
+            except Exception:
+                pass
+
+
+@app.post("/predict_defect_image")
+async def predict_defect_image_endpoint(file: UploadFile = File(...)):
+    if defect_model is None:
+        raise HTTPException(
+            status_code=500, detail=f"Defect model not loaded: {defect_load_error}"
+        )
+
+    if not file.content_type or not file.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail=f"Invalid content type: {file.content_type}")
+
+    suffix = Path(file.filename).suffix.lower() if file.filename else ".jpg"
+    if suffix not in [".jpg", ".jpeg", ".png", ".bmp", ".webp"]:
+        suffix = ".jpg"
+
+    tmp_path = None
+    try:
+        data = await file.read()
+
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            tmp.write(data)
+            tmp_path = Path(tmp.name)
+
+        pred_name, probs = predict_defect_image(defect_model, tmp_path, device=device)
+
+        probs_dict = {
+            DEFECT_CLASSES[i]: float(probs[i]) for i in range(len(DEFECT_CLASSES))
+        }
+
+        return {
+            "filename": file.filename,
+            "prediction": pred_name,
+            "probabilities": probs_dict,
+            "device": str(device),
+            "checkpoint": str(DEFECT_CHECKPOINT_PATH),
+            "variant": defect_default_variant,
         }
 
     except Exception as e:
