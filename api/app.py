@@ -20,12 +20,17 @@ from src.defect_cv.inference import (
 from src.nlp.run_utils import get_run_dirs
 from src.nlp.baseline import BaselinePredictor
 from src.nlp.transformer import TransformerPredictor
+from src.rag_helpdesk.schemas import RAGQueryRequest, RAGQueryResponse, Citation
+from src.rag_helpdesk.ingest import load_rag_engine
 
 app = FastAPI(title="Applied Deep Learning")
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CHECKPOINT_PATH = REPO_ROOT / "models" / "cv" / "resnet18_cifar10.pt"
 DEFECT_CHECKPOINT_PATH = REPO_ROOT / "models" / "defect_cv" / "best.pt"
+RAG_INDEX_DIR = REPO_ROOT / "data" / "helpdesk_kb" / "index"
+RAG_INDEX_FILE = RAG_INDEX_DIR / "index.faiss"
+RAG_METADATA_FILE = RAG_INDEX_DIR / "metadata.jsonl"
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model = None
@@ -40,11 +45,24 @@ nlp_default_model: str = os.getenv("NLP_MODEL", "auto")   # auto | baseline | di
 nlp_load_error: str | None = None
 _nlp_cache: Dict[Tuple[str, str], Any] = {}  # (run_id, model_type) -> predictor
 
+# ---------- RAG globals ----------
+rag_embed_model: str = os.getenv("RAG_EMBED_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
+rag_llm_model: str = os.getenv("RAG_LLM_MODEL", "google/flan-t5-base")
+try:
+    rag_top_k: int = int(os.getenv("RAG_TOP_K", "5"))
+except ValueError:
+    rag_top_k = 5
+rag_device: str = "cuda" if torch.cuda.is_available() else "cpu"
+rag_engine = None
+rag_load_error: str | None = None
+
+
 @app.on_event("startup")
 def startup_event() -> None:
 
     global defect_model, defect_load_error
     global model, load_error, nlp_load_error
+    global rag_engine, rag_load_error
     try:
         model = load_cv_model(CHECKPOINT_PATH, device=device)
         load_error = None
@@ -61,7 +79,7 @@ def startup_event() -> None:
         defect_model = None
         defect_load_error = str(e)
 
-        
+
     # Optional: load a default NLP predictor if NLP_RUN_ID is set
     if nlp_default_run_id:
         try:
@@ -70,9 +88,24 @@ def startup_event() -> None:
         except Exception as e:
             nlp_load_error = str(e)
 
+    try:
+        rag_engine = load_rag_engine(
+            index_dir=RAG_INDEX_DIR,
+            embedding_model_name=rag_embed_model,
+            llm_model_name=rag_llm_model,
+            top_k=rag_top_k,
+            device=rag_device,
+        )
+        rag_load_error = None
+    except Exception as e:
+        rag_engine = None
+        rag_load_error = str(e)
+
 
 @app.get("/health")
 def health():
+    rag_index_exists = RAG_INDEX_FILE.exists() and RAG_METADATA_FILE.exists()
+
     return {
         "status": "ok",
         "device": str(device),
@@ -86,6 +119,12 @@ def health():
         "nlp_default_run_id": nlp_default_run_id,
         "nlp_default_model": nlp_default_model,
         "nlp_load_error": nlp_load_error,
+        "rag_index_exists": rag_index_exists,
+        "rag_loaded": rag_engine is not None,
+        "rag_load_error": rag_load_error,
+        "rag_embed_model": rag_embed_model,
+        "rag_llm_model": rag_llm_model,
+        "rag_top_k": rag_top_k,
     }
 
 
@@ -279,3 +318,46 @@ def predict_text_endpoint(req: NLPRequest):
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"NLP prediction failed: {e}")
+
+
+@app.post("/rag_helpdesk_query", response_model=RAGQueryResponse)
+def rag_helpdesk_query_endpoint(req: RAGQueryRequest):
+    if rag_engine is None:
+        detail = rag_load_error or "RAG engine failed to load"
+        raise HTTPException(status_code=500, detail=f"RAG engine not loaded: {detail}")
+
+    effective_top_k = req.top_k if req.top_k is not None else rag_top_k
+    if effective_top_k <= 0:
+        raise HTTPException(status_code=400, detail="top_k must be greater than 0")
+
+    try:
+        original_top_k = rag_engine.retriever.top_k
+        try:
+            rag_engine.retriever.top_k = effective_top_k
+            result = rag_engine.answer(req.query)
+        finally:
+            rag_engine.retriever.top_k = original_top_k
+
+        citations = [
+            Citation(
+                score=float(item.get("score", 0.0)),
+                source_path=str(item.get("source_path", "")),
+                chunk_id=str(item.get("chunk_id", "")),
+                doc_id=str(item.get("doc_id", "")),
+            )
+            for item in result.get("citations", [])
+        ]
+
+        response = RAGQueryResponse(
+            answer=str(result.get("answer", "")),
+            citations=citations,
+            context_used=[str(x) for x in result.get("context_used", [])],
+            model=rag_llm_model,
+            top_k=effective_top_k,
+        )
+        return response
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"RAG query failed: {e}")
