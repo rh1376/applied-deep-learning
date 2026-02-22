@@ -46,8 +46,8 @@ nlp_load_error: str | None = None
 _nlp_cache: Dict[Tuple[str, str], Any] = {}  # (run_id, model_type) -> predictor
 
 # ---------- RAG globals ----------
-rag_embed_model: str = os.getenv("RAG_EMBED_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
-rag_llm_model: str = os.getenv("RAG_LLM_MODEL", "google/flan-t5-base")
+rag_embed_model: str = os.getenv("RAG_EMBED_MODEL", "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
+rag_llm_model: str = os.getenv("RAG_LLM_MODEL", "Qwen/Qwen2.5-3B-Instruct")
 try:
     rag_top_k: int = int(os.getenv("RAG_TOP_K", "5"))
 except ValueError:

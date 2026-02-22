@@ -69,10 +69,10 @@ class HelpdeskRAGConfig:
         self.top_k = self.top_k if self.top_k is not None else _env_int("TOP_K", 5)
 
         self.embedding_model_name = self.embedding_model_name or _env_str(
-            "EMBEDDING_MODEL_NAME", "sentence-transformers/all-MiniLM-L6-v2"
+            "EMBEDDING_MODEL_NAME", "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
         )
         self.llm_backend = self.llm_backend or _env_str("LLM_BACKEND", "transformers")
-        self.llm_model_name = self.llm_model_name or _env_str("LLM_MODEL_NAME", "google/flan-t5-base")
+        self.llm_model_name = self.llm_model_name or _env_str("LLM_MODEL_NAME", "Qwen/Qwen2.5-3B-Instruct")
 
 
 def get_config() -> HelpdeskRAGConfig:

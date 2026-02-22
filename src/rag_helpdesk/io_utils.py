@@ -38,6 +38,30 @@ def _build_metadata(path: Path) -> dict[str, Any]:
         "modified_time": modified,
     }
 
+def _load_docx_text(path: Path) -> str:
+    try:
+        import docx  # python-docx
+    except ImportError as exc:
+        raise RuntimeError(
+            "DOCX support requires python-docx. Install it with: pip install python-docx"
+        ) from exc
+
+    document = docx.Document(str(path))
+    parts: list[str] = []
+
+    # پاراگراف‌ها
+    for p in document.paragraphs:
+        if p.text and p.text.strip():
+            parts.append(p.text)
+
+    # جدول‌ها (خیلی مهم چون بعضی اسناد تو جدولن)
+    for table in document.tables:
+        for row in table.rows:
+            row_text = " | ".join(cell.text.strip() for cell in row.cells if cell.text and cell.text.strip())
+            if row_text:
+                parts.append(row_text)
+
+    return "\n".join(parts)
 
 def _load_pdf_text(path: Path) -> str:
     try:
@@ -76,6 +100,8 @@ def load_document(path: Path) -> Document:
         text = path.read_text(encoding="utf-8", errors="replace")
     elif ext == ".pdf":
         text = _load_pdf_text(path)
+    elif ext == ".docx":
+        text = _load_docx_text(path)
     else:
         raise ValueError(f"Unsupported file type: {ext}")
 
@@ -89,6 +115,6 @@ def load_document(path: Path) -> Document:
 
 
 def load_corpus(raw_dir: Path) -> list[Document]:
-    supported_exts = (".txt", ".md", ".pdf")
+    supported_exts = (".txt", ".md", ".pdf", ".docx")
     files = list_files(raw_dir=raw_dir, exts=supported_exts)
     return [load_document(path) for path in files]
